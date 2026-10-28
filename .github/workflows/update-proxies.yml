@@ -1,0 +1,50 @@
+name: Update Proxy Pool
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - ".github/workflows/update-proxies.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: proxy-feed-update
+  cancel-in-progress: false
+
+jobs:
+  collect-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Collect and verify proxies (HTTPS + Google + Gemini)
+        run: node scripts/collect.mjs ./dist-feed
+
+      - name: Publish single-commit snapshot to orphan data branch
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd ./dist-feed
+          git init -q
+          git checkout -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add proxies.json stats.json
+          git commit -q -m "chore: refresh verified proxy snapshot ($(date -u +'%Y-%m-%d %H:%M UTC'))"
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" data:data
