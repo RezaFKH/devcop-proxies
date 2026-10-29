@@ -25,10 +25,10 @@ export const UPSTREAM_FEEDS = [
 ];
 
 const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 15_000);
-const PROBE_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS || 6_500);
+const PROBE_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS || 3_500);
 const CONCURRENCY = Number(process.env.CONCURRENCY || 60);
-const MAX_CANDIDATES = Number(process.env.MAX_CANDIDATES || 1_600);
-const MIN_PER_COUNTRY = Number(process.env.MIN_PER_COUNTRY || 25);
+const MAX_CANDIDATES = Number(process.env.MAX_CANDIDATES || 3_600);
+const MIN_PER_COUNTRY = Number(process.env.MIN_PER_COUNTRY || 40);
 
 const REGION_NAMES = typeof Intl !== "undefined" && Intl.DisplayNames ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
 
@@ -565,6 +565,28 @@ export async function verifyCandidate(candidate, { timeoutMs = PROBE_TIMEOUT_MS,
 
 	if (!exitIp && !geminiVerdict.reachable) return null;
 
+	let exitCountry = candidate.country;
+	let exitCountryName = candidate.country_name;
+	if (exitIp && exitIp !== candidate.host && targets.geoLookup !== false) {
+		try {
+			const ctrl = new AbortController();
+			const gt = setTimeout(() => ctrl.abort(), 2_500);
+			try {
+				const gr = await fetch(`https://get.geojs.io/v1/ip/geo/${encodeURIComponent(exitIp)}.json`, { signal: ctrl.signal });
+				if (gr.ok) {
+					const gd = await gr.json();
+					const cc = normalizeCountry(gd?.country_code);
+					if (cc) {
+						exitCountry = cc;
+						exitCountryName = countryNameEn(cc, gd?.country);
+					}
+				}
+			} finally {
+				clearTimeout(gt);
+			}
+		} catch {}
+	}
+
 	return {
 		protocol: candidate.protocol,
 		username: candidate.username || null,
@@ -582,13 +604,13 @@ export async function verifyCandidate(candidate, { timeoutMs = PROBE_TIMEOUT_MS,
 		uptime: candidate.uptime,
 		asn: candidate.org ? { autonomous_system_organization: candidate.org } : undefined,
 		geolocation: {
-			country: candidate.country
+			country: exitCountry
 				? {
-						iso_code: candidate.country,
-						...(candidate.country_name ? { names: { en: candidate.country_name } } : {}),
+						iso_code: exitCountry,
+						...(exitCountryName ? { names: { en: exitCountryName } } : {}),
 					}
 				: undefined,
-			...(candidate.city ? { city: { names: { en: candidate.city } } } : {}),
+			...(exitCountry === candidate.country && candidate.city ? { city: { names: { en: candidate.city } } } : {}),
 		},
 	};
 }
@@ -598,6 +620,9 @@ export function sortVerifiedProxies(list) {
 		const aTier = a.gemini_ok ? 0 : a.google_ok ? 1 : 2;
 		const bTier = b.gemini_ok ? 0 : b.google_ok ? 1 : 2;
 		if (aTier !== bTier) return aTier - bTier;
+		const aDirect = !a.exit_ip || a.exit_ip === a.host ? 0 : 1;
+		const bDirect = !b.exit_ip || b.exit_ip === b.host ? 0 : 1;
+		if (aDirect !== bDirect) return aDirect - bDirect;
 		return (a.timeout ?? 999) - (b.timeout ?? 999);
 	});
 }
