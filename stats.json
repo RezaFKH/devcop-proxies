@@ -1,0 +1,99 @@
+{
+  "updated_at": "2026-10-31T18:09:45.170Z",
+  "duration_sec": 174,
+  "candidates_total": 6727,
+  "candidates_tested": 3600,
+  "working_https": 524,
+  "google_ok": 231,
+  "gemini_ok": 231,
+  "countries_count": 50,
+  "protocols": {
+    "socks5": 366,
+    "socks4": 10,
+    "http": 148
+  },
+  "countries": {
+    "US": 49,
+    "CA": 3,
+    "EC": 4,
+    "NL": 150,
+    "FI": 1,
+    "HK": 9,
+    "KR": 5,
+    "SG": 6,
+    "SA": 1,
+    "PH": 4,
+    "PY": 1,
+    "TR": 4,
+    "JP": 5,
+    "IN": 7,
+    "SE": 1,
+    "DO": 3,
+    "TH": 6,
+    "ID": 59,
+    "VN": 18,
+    "MX": 3,
+    "VE": 4,
+    "ES": 3,
+    "PE": 1,
+    "SY": 2,
+    "PL": 2,
+    "CO": 7,
+    "RU": 7,
+    "BR": 1,
+    "GB": 5,
+    "AR": 5,
+    "BD": 3,
+    "CZ": 2,
+    "UZ": 1,
+    "MA": 1,
+    "MY": 14,
+    "FR": 31,
+    "CH": 19,
+    "ML": 43,
+    "DE": 11,
+    "PK": 1,
+    "PG": 1,
+    "KH": 1,
+    "CR": 1,
+    "ZA": 3,
+    "SK": 1,
+    "LY": 1,
+    "MN": 1,
+    "CM": 11,
+    "BI": 1,
+    "UA": 1
+  },
+  "feeds": [
+    {
+      "name": "maximilianfeix",
+      "ok": true,
+      "count": 569
+    },
+    {
+      "name": "proxyscrape",
+      "ok": true,
+      "count": 3432
+    },
+    {
+      "name": "monosans",
+      "ok": true,
+      "count": 1484
+    },
+    {
+      "name": "xyzs996",
+      "ok": true,
+      "count": 1062
+    },
+    {
+      "name": "litportnet",
+      "ok": true,
+      "count": 294
+    },
+    {
+      "name": "vakhov",
+      "ok": true,
+      "count": 722
+    }
+  ]
+}
