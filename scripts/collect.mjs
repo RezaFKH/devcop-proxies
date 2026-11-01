@@ -18,20 +18,27 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+export const CARRY_FORWARD_URL =
+	"https://raw.githubusercontent.com/RezaFKH/devcop-proxies/data/proxies.json";
+
 export const UPSTREAM_FEEDS = [
 	{ name: "maximilianfeix", url: "https://raw.githubusercontent.com/maximilianfeix/free-proxy-list/main/proxies.json" },
 	{ name: "proxifly", url: "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/all/data.json" },
 	{ name: "hproxy", url: "https://raw.githubusercontent.com/hproxy-com/free-proxy-list/main/live.json" },
+	{ name: "proxio", url: "https://raw.githubusercontent.com/proxio-io/proxy-list/main/all.json" },
 	{ name: "xyzs996", url: "https://raw.githubusercontent.com/xyzs996/free-proxy-health-list/main/proxies/all/data.json" },
 	{ name: "litportnet", url: "https://raw.githubusercontent.com/litportnet/free-proxy-list/live/proxies/all.json" },
 	{ name: "monosans", url: "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies.json" },
 	{ name: "proxyscrape", url: "https://raw.githubusercontent.com/ProxyScrape/free-proxy-list/main/proxies/all/data.json" },
+	{ name: "thordata_socks5", url: "https://raw.githubusercontent.com/Thordata/awesome-free-proxy-list/main/docs/data/socks5.json" },
+	{ name: "thordata_https", url: "https://raw.githubusercontent.com/Thordata/awesome-free-proxy-list/main/docs/data/https.json", defaultHttps: true },
+	{ name: "thordata_socks4", url: "https://raw.githubusercontent.com/Thordata/awesome-free-proxy-list/main/docs/data/socks4.json" },
 	{ name: "vakhov", url: "https://raw.githubusercontent.com/vakhov/fresh-proxy-list/master/proxylist.json" },
 ];
 
 export const PRIORITY_COUNTRIES = [
-	"DE", "FR", "NL", "GB", "CH", "SE", "FI", "AT",
-	"IT", "ES", "PL", "TR", "CA", "AE", "JP", "SG", "US",
+	"DE", "FR", "NL", "GB", "CH", "SE", "FI", "NO", "DK", "AT", "BE", "IE",
+	"IT", "ES", "PT", "PL", "CZ", "RO", "TR", "CA", "AE", "JP", "KR", "SG", "AU", "US",
 ];
 
 const IP_ECHO_TARGETS = [
@@ -40,13 +47,15 @@ const IP_ECHO_TARGETS = [
 	{ host: "icanhazip.com", path: "/", accept: "text/plain" },
 ];
 
-const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 18_000);
-const CONNECT_TIMEOUT_MS = Number(process.env.CONNECT_TIMEOUT_MS || 2_200);
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || 22_000);
+const CONNECT_TIMEOUT_MS = Number(process.env.CONNECT_TIMEOUT_MS || 2_400);
 const PROBE_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS || 3_500);
-const CONCURRENCY = Number(process.env.CONCURRENCY || 110);
-const MAX_CANDIDATES = Number(process.env.MAX_CANDIDATES || 6_500);
+const GEMINI_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS || 5_200);
+const MAX_WALL_TIME_MS = Number(process.env.MAX_WALL_TIME_MS || 390_000);
+const CONCURRENCY = Number(process.env.CONCURRENCY || 115);
+const MAX_CANDIDATES = Number(process.env.MAX_CANDIDATES || 9_500);
 const MIN_PER_COUNTRY = Number(process.env.MIN_PER_COUNTRY || 40);
-const PRIORITY_MAX_PER_COUNTRY = Number(process.env.PRIORITY_MAX_PER_COUNTRY || 400);
+const PRIORITY_MAX_PER_COUNTRY = Number(process.env.PRIORITY_MAX_PER_COUNTRY || 600);
 const MAX_PORTS_PER_HOST_FARM = Number(process.env.MAX_PORTS_PER_HOST_FARM || 4);
 const KEEP_PORTS_PER_HOST = Number(process.env.KEEP_PORTS_PER_HOST || 2);
 const MAX_VERIFIED_PER_HOST = Number(process.env.MAX_VERIFIED_PER_HOST || 2);
@@ -151,12 +160,13 @@ function parseEndpoint(raw, fallbackProtocol = "socks5") {
 }
 
 /** Normalize one upstream JSON record from any supported feed. */
-export function normalizeUpstreamEntry(entry) {
+export function normalizeUpstreamEntry(entry, options = {}) {
 	if (!entry || typeof entry !== "object") return null;
+	const { defaultHttps = null, carryForward = false } = options || {};
 
-	// hproxy stores `protocols: ["socks5", "https", ...]`
+	// hproxy & proxio store `protocols: ["socks5", "https", ...]`
 	let protoArrayHttps = null;
-	let hintedProto = entry.protocol || entry.ptype || null;
+	let hintedProto = entry.protocol || entry.ptype || entry.type || null;
 	if (!hintedProto && Array.isArray(entry.protocols) && entry.protocols.length > 0) {
 		const lower = entry.protocols.map((p) => String(p || "").trim().toLowerCase());
 		if (lower.includes("socks5")) hintedProto = "socks5";
@@ -167,6 +177,9 @@ export function normalizeUpstreamEntry(entry) {
 		} else if (lower.includes("http")) {
 			hintedProto = "http";
 			protoArrayHttps = false;
+		} else {
+			// Skip non-443 tunnel types such as `["CONNECT80"]` or `["CONNECT25"]`
+			return null;
 		}
 	}
 
@@ -184,7 +197,7 @@ export function normalizeUpstreamEntry(entry) {
 		}
 	}
 
-	const rawProtoLower = String(entry.protocol || entry.ptype || "").trim().toLowerCase();
+	const rawProtoLower = String(entry.protocol || entry.ptype || entry.type || "").trim().toLowerCase();
 	let host = String(entry.ip || entry.host || entry.address || "").trim().replace(/^\[|\]$/g, "");
 	let port = Number(entry.port);
 	let parsed = null;
@@ -207,6 +220,7 @@ export function normalizeUpstreamEntry(entry) {
 	const country =
 		normalizeCountry(geo?.country?.iso_code) ||
 		normalizeCountry(entry.country_code) ||
+		normalizeCountry(entry.code) ||
 		normalizeCountry(entry.country) ||
 		normalizeCountry(typeof geo?.country === "string" ? geo.country : null);
 
@@ -214,18 +228,24 @@ export function normalizeUpstreamEntry(entry) {
 		country,
 		geo?.country?.names?.en || entry.country_name || (typeof entry.country === "string" && entry.country.length > 2 ? entry.country : null)
 	);
-	const rawCity = geo?.city?.names?.en || (typeof geo?.city === "string" ? geo.city : null) || entry.city || null;
+	const rawCity =
+		geo?.city?.names?.en ||
+		(typeof geo?.city === "string" ? geo.city : null) ||
+		entry.city ||
+		entry.location ||
+		null;
 	const city = rawCity && String(rawCity).trim() && String(rawCity).trim().toLowerCase() !== "unknown" ? String(rawCity).trim() : null;
 
-	const timeoutSec = finiteNonNegative(entry.timeout);
+	const timeoutSec = finiteNonNegative(entry.timeout) ?? finiteNonNegative(entry.latency_s);
 	const latencyMs =
 		finiteNonNegative(entry.latency_ms) ??
 		finiteNonNegative(entry.latencyMs) ??
 		finiteNonNegative(entry.latency) ??
-		finiteNonNegative(entry.delay);
+		finiteNonNegative(entry.delay) ??
+		finiteNonNegative(entry.speed_ms);
 	const upstreamTimeout = timeoutSec !== null ? timeoutSec : latencyMs !== null ? latencyMs / 1000 : null;
 
-	const https =
+	const rawHttps =
 		rawProtoLower === "https"
 			? true
 			: protoArrayHttps !== null
@@ -241,18 +261,25 @@ export function normalizeUpstreamEntry(entry) {
 								: entry.ssl === "1" || entry.ssl === 1
 									? true
 									: null;
+	const https = rawHttps !== null ? rawHttps : typeof defaultHttps === "boolean" ? defaultHttps : null;
 
 	// Skip HTTP proxies explicitly proved unable to tunnel HTTPS
 	if (protocol === "http" && https === false) return null;
 
+	const ipTypeLower = typeof entry.ip_type === "string" ? entry.ip_type.toLowerCase() : "";
 	const hosting =
 		typeof entry.hosting === "boolean"
 			? entry.hosting
 			: typeof entry.networkType === "string"
 				? entry.networkType.toLowerCase() === "hosting"
-				: null;
+				: ipTypeLower === "datacenter" || ipTypeLower === "hosting"
+					? true
+					: ipTypeLower === "residential" || ipTypeLower === "isp"
+						? false
+						: null;
 
 	const uptime =
+		finiteNonNegative(entry.reliability) ??
 		finiteNonNegative(entry.uptime) ??
 		finiteNonNegative(entry.uptime_24h) ??
 		finiteNonNegative(entry.uptime_percent) ??
@@ -264,7 +291,12 @@ export function normalizeUpstreamEntry(entry) {
 	// blocklists dropped while allowing Google-verified/high-uptime cloud hosts.
 	const threatStr = typeof entry.threat === "string" ? entry.threat.trim().toLowerCase() : "";
 	const hasRealThreat = threatStr !== "" && !NON_THREAT_VALUES.has(threatStr);
-	const trustedCloudHost = hosting === true && (entry.sites?.google === true || entry.google_ok === true || (uptime !== null && uptime >= 60));
+	const hasGoogle =
+		entry.google_ok === true ||
+		entry.google === true ||
+		entry.gemini_ok === true ||
+		entry.sites?.google === true;
+	const trustedCloudHost = hosting === true && (hasGoogle || (uptime !== null && uptime >= 60));
 	const blocklisted = hasRealThreat || (entry.blocklisted === true && !trustedCloudHost);
 	if (blocklisted) return null;
 
@@ -289,7 +321,9 @@ export function normalizeUpstreamEntry(entry) {
 		org: org ? String(org) : null,
 		upstream_timeout: upstreamTimeout,
 		upstream_https: https,
-		upstream_google: entry.google_ok === true || entry.sites?.google === true,
+		upstream_google: hasGoogle,
+		upstream_gemini: entry.gemini_ok === true,
+		carried_forward: Boolean(carryForward),
 		hosting,
 		anonymity: typeof entry.anonymity === "string" ? entry.anonymity.toLowerCase() : null,
 		uptime,
@@ -298,6 +332,8 @@ export function normalizeUpstreamEntry(entry) {
 
 function upstreamPriorityScore(c) {
 	let score = 0;
+	if (c.carried_forward) score -= 1800;
+	if (c.upstream_gemini) score -= 1200;
 	if (c.upstream_google) score -= 1000;
 	if (c.upstream_https === true) score -= 300;
 	if (c.protocol === "socks5") score -= 140;
@@ -651,9 +687,12 @@ async function openProxyTunnel(proxy, targetHost, targetPort, timeoutMs) {
 	}
 }
 
-async function httpsGetViaProxy(proxy, { host, path: reqPath, headers = {}, timeoutMs = PROBE_TIMEOUT_MS, earlyClassifier = null, tlsOptions = {} } = {}) {
+async function httpsGetViaProxy(
+	proxy,
+	{ host, path: reqPath, headers = {}, connectTimeoutMs = null, timeoutMs = PROBE_TIMEOUT_MS, earlyClassifier = null, tlsOptions = {} } = {}
+) {
 	const started = Date.now();
-	const rawSocket = await openProxyTunnel(proxy, host, 443, timeoutMs);
+	const rawSocket = await openProxyTunnel(proxy, host, 443, connectTimeoutMs ?? timeoutMs);
 	const remain = Math.max(400, timeoutMs - (Date.now() - started));
 
 	return await new Promise((resolve, reject) => {
@@ -802,7 +841,13 @@ async function lookupExitCountry(exitIp) {
  *   check to reject per-connection rotating pools while preserving fixed-exit
  *   NAT / Cloudflare WARP / Cloud VPS proxies that pass Gemini cleanly.
  */
-export async function verifyCandidate(candidate, { timeoutMs = PROBE_TIMEOUT_MS, tlsOptions = {}, targets = {} } = {}) {
+export async function verifyCandidate(candidate, options = {}) {
+	const hasExplicitTimeout = options && options.timeoutMs !== undefined;
+	const timeoutMs = hasExplicitTimeout ? Number(options.timeoutMs) : PROBE_TIMEOUT_MS;
+	const geminiTimeoutMs = hasExplicitTimeout ? timeoutMs : Math.max(timeoutMs, GEMINI_TIMEOUT_MS);
+	const tlsOptions = options?.tlsOptions || {};
+	const targets = options?.targets || {};
+
 	const targetIdx = echoCursor++ % IP_ECHO_TARGETS.length;
 	const primaryEcho = targets.ipifyHost
 		? { host: targets.ipifyHost, path: "/?format=json", accept: "application/json" }
@@ -818,7 +863,8 @@ export async function verifyCandidate(candidate, { timeoutMs = PROBE_TIMEOUT_MS,
 			host: geminiHost,
 			path: "/app",
 			headers: { Accept: "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" },
-			timeoutMs,
+			connectTimeoutMs: timeoutMs,
+			timeoutMs: geminiTimeoutMs,
 			tlsOptions,
 			earlyClassifier: classifyGeminiHttp,
 		}),
@@ -949,28 +995,42 @@ async function fetchFeed(feed) {
 	try {
 		const res = await fetch(feed.url, {
 			signal: controller.signal,
-			headers: { "User-Agent": "DevCop-Proxy-Aggregator/2.0" },
+			headers: { "User-Agent": "DevCop-Proxy-Aggregator/2.1" },
 		});
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = await res.json();
-		const rows = Array.isArray(data) ? data : Array.isArray(data?.proxies) ? data.proxies : [];
+		const rows = Array.isArray(data)
+			? data
+			: Array.isArray(data?.proxies)
+				? data.proxies
+				: Array.isArray(data?.data)
+					? data.data
+					: [];
 		return { name: feed.name, rows };
 	} finally {
 		clearTimeout(timer);
 	}
 }
 
-export async function runCollection({ outDir = process.cwd(), feeds = UPSTREAM_FEEDS } = {}) {
+export async function runCollection({
+	outDir = process.cwd(),
+	feeds = UPSTREAM_FEEDS,
+	carryForwardUrl = feeds === UPSTREAM_FEEDS ? CARRY_FORWARD_URL : "",
+} = {}) {
 	const startedAt = new Date();
-	console.log(`[collect] Fetching ${feeds.length} upstream feeds...`);
+	const activeFeeds = carryForwardUrl
+		? [{ name: "carry_forward", url: carryForwardUrl, carryForward: true, defaultHttps: true }, ...feeds]
+		: [...feeds];
+	console.log(`[collect] Fetching ${activeFeeds.length} feeds...`);
 
-	const settled = await Promise.allSettled(feeds.map(fetchFeed));
+	const settled = await Promise.allSettled(activeFeeds.map(fetchFeed));
 	const byKey = new Map();
 	const feedSummary = [];
 
 	for (let i = 0; i < settled.length; i++) {
 		const res = settled[i];
-		const feedName = feeds[i].name;
+		const feedCfg = activeFeeds[i];
+		const feedName = feedCfg.name;
 		if (res.status !== "fulfilled") {
 			console.warn(`[collect] Feed ${feedName} failed: ${res.reason?.message || res.reason}`);
 			feedSummary.push({ name: feedName, ok: false, count: 0 });
@@ -978,7 +1038,10 @@ export async function runCollection({ outDir = process.cwd(), feeds = UPSTREAM_F
 		}
 		let accepted = 0;
 		for (const raw of res.value.rows) {
-			const entry = normalizeUpstreamEntry(raw);
+			const entry = normalizeUpstreamEntry(raw, {
+				defaultHttps: feedCfg.defaultHttps ?? null,
+				carryForward: Boolean(feedCfg.carryForward),
+			});
 			if (!entry) continue;
 			accepted++;
 			const key = `${entry.protocol}://${entry.host}:${entry.port}`;
@@ -986,6 +1049,8 @@ export async function runCollection({ outDir = process.cwd(), feeds = UPSTREAM_F
 			if (!existing) {
 				byKey.set(key, entry);
 			} else {
+				existing.carried_forward = existing.carried_forward || entry.carried_forward;
+				existing.upstream_gemini = existing.upstream_gemini || entry.upstream_gemini;
 				existing.upstream_google = existing.upstream_google || entry.upstream_google;
 				if (existing.upstream_https === null && entry.upstream_https !== null) existing.upstream_https = entry.upstream_https;
 				if (!existing.country && entry.country) existing.country = entry.country;
@@ -1010,9 +1075,12 @@ export async function runCollection({ outDir = process.cwd(), feeds = UPSTREAM_F
 
 	const verified = [];
 	let cursor = 0;
+	let testedCount = 0;
+	const wallDeadline = startedAt.getTime() + MAX_WALL_TIME_MS;
 	async function worker() {
-		while (cursor < scheduled.length) {
+		while (cursor < scheduled.length && Date.now() < wallDeadline) {
 			const idx = cursor++;
+			testedCount++;
 			const candidate = scheduled[idx];
 			try {
 				const result = await verifyCandidate(candidate);
@@ -1040,7 +1108,7 @@ export async function runCollection({ outDir = process.cwd(), feeds = UPSTREAM_F
 		duration_sec: Number(((Date.now() - startedAt.getTime()) / 1000).toFixed(1)),
 		candidates_total: cleanCandidates.length,
 		rotating_farm_dropped: droppedFarmEntries,
-		candidates_tested: scheduled.length,
+		candidates_tested: testedCount,
 		working_https: sorted.length,
 		unique_hosts: new Set(sorted.map((p) => p.host)).size,
 		unique_exit_ips: new Set(sorted.map((p) => p.exit_ip || p.host)).size,
