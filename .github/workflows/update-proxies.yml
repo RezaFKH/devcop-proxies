@@ -2,7 +2,8 @@ name: Update Proxy Pool
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "13 * * * *"
+    - cron: "43 * * * *"
   workflow_dispatch:
   push:
     branches:
