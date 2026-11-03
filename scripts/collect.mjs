@@ -64,10 +64,13 @@ const MAX_VERIFIED_PER_EXIT_IP = Number(process.env.MAX_VERIFIED_PER_EXIT_IP || 
 const REGION_NAMES = typeof Intl !== "undefined" && Intl.DisplayNames ? new Intl.DisplayNames(["en"], { type: "region" }) : null;
 
 const NON_THREAT_VALUES = new Set(["", "none", "unknown", "clean", "null", "false", "low", "ok"]);
+const EXCLUDED_COUNTRIES = new Set(["IR"]);
+const EXCLUDED_RELAY_ENTRY_COUNTRIES = new Set(["IR", "CN"]);
+const TOR_SOCKS_PORTS = new Set([9050, 9051, 9150, 9151]);
 
 const CF_IPV4_CIDRS = [
-	[0x6715f400, 22], [0x6716c800, 22], [0x671f0400, 22], [0x68100000, 13],
-	[0x68180000, 14], [0x6ca2c000, 18], [0x83004800, 22], [0x8d654000, 18],
+	[0x6715f400, 22], [0x6716c800, 22], [0x671f0400, 22], [0x68100000, 12],
+	[0x6ca2c000, 18], [0x83004800, 22], [0x8d654000, 18],
 	[0xa29e0000, 15], [0xac400000, 13], [0xadf53000, 20], [0xbc726000, 20],
 	[0xbe5df000, 20], [0xc6298000, 17],
 ];
@@ -212,8 +215,9 @@ export function normalizeUpstreamEntry(entry, options = {}) {
 	// Prefer numeric IPv4/IPv6 literal when `entry.ip` is available (avoids stale rDNS hostnames)
 	if (entry.ip && net.isIP(String(entry.ip).trim())) host = String(entry.ip).trim();
 
-	// Reject Cloudflare CDN Anycast IPs (reverse proxies, never forward tunnels)
+	// Reject Cloudflare CDN Anycast IPs (reverse proxies, never forward tunnels) and Tor SOCKS daemons
 	if (isCloudflareEdgeIp(host)) return null;
+	if (TOR_SOCKS_PORTS.has(port)) return null;
 
 	const protocol = normalizeProtocol(hintedProto || parsed?.protocol || "socks5");
 	const geo = entry.geolocation && typeof entry.geolocation === "object" ? entry.geolocation : {};
@@ -223,6 +227,7 @@ export function normalizeUpstreamEntry(entry, options = {}) {
 		normalizeCountry(entry.code) ||
 		normalizeCountry(entry.country) ||
 		normalizeCountry(typeof geo?.country === "string" ? geo.country : null);
+	if (country && EXCLUDED_COUNTRIES.has(country)) return null;
 
 	const country_name = countryNameEn(
 		country,
@@ -884,8 +889,8 @@ export async function verifyCandidate(candidate, options = {}) {
 		} catch {}
 	}
 
-	// Never publish a proxy whose real exit IP could not be verified
-	if (!exitIp) return null;
+	// Never publish a proxy whose real exit IP could not be verified or exits on Cloudflare/WARP
+	if (!exitIp || isCloudflareEdgeIp(exitIp)) return null;
 
 	let geminiVerdict = { reachable: false, google_ok: false, gemini_ok: false };
 	if (geminiRes.status === "fulfilled") {
@@ -898,9 +903,10 @@ export async function verifyCandidate(candidate, options = {}) {
 	}
 
 	// 2-Probe Exit Stability Verification on multi-hop / NAT servers (`exitIp !== host`):
-	// Rejects country-hopping per-connection rotators (`ip2 !== ip1`) while keeping
-	// fixed-exit NAT / Cloudflare WARP / Cloud servers (`ip2 === ip1`) intact for Gemini.
+	// Rejects country-hopping per-connection rotators (`ip2 !== ip1`) and domestic IR/CN
+	// hairpin relays while keeping clean fixed-exit NAT / Cloud servers (`ip2 === ip1`).
 	if (exitIp !== candidate.host && targets.stabilityCheck !== false) {
+		if (candidate.country && EXCLUDED_RELAY_ENTRY_COUNTRIES.has(candidate.country)) return null;
 		try {
 			const confirmEcho = await probeExitIpOnce(candidate, secondaryEcho, { timeoutMs, tlsOptions });
 			if (!confirmEcho?.ip || confirmEcho.ip !== exitIp) {
@@ -908,6 +914,12 @@ export async function verifyCandidate(candidate, options = {}) {
 			}
 		} catch {
 			return null;
+		}
+		if (targets.geoLookup !== false) {
+			const entryGeo = await lookupExitCountry(candidate.host);
+			if (entryGeo?.country && EXCLUDED_RELAY_ENTRY_COUNTRIES.has(entryGeo.country)) {
+				return null;
+			}
 		}
 	}
 
@@ -925,7 +937,8 @@ export async function verifyCandidate(candidate, options = {}) {
 			return null;
 		}
 	}
-	if (!exitCountry) return null;
+	if (!exitCountry || EXCLUDED_COUNTRIES.has(exitCountry)) return null;
+	if (candidate.org && /\bcloudflare\b/i.test(candidate.org) && exitIp !== candidate.host) return null;
 
 	return {
 		protocol: candidate.protocol,
@@ -966,22 +979,39 @@ export function sortVerifiedProxies(list) {
 }
 
 /**
- * Cap duplicate ports per host and duplicate entries sharing the same `exit_ip`
- * so every published row represents an independent fixed-exit server.
+ * Cap duplicate ports per host, duplicate protocols on the exact same `host:port`
+ * (preferring `socks5` > `http` > `socks4` within the same quality tier),
+ * and duplicate entries sharing the same `exit_ip` so every published row
+ * represents an independent fixed-exit server.
  */
 export function deduplicateVerifiedPool(
 	sortedList,
 	{ maxPerHost = MAX_VERIFIED_PER_HOST, maxPerExitIp = MAX_VERIFIED_PER_EXIT_IP } = {}
 ) {
+	const protoRank = (p) => (p.protocol === "socks5" ? 0 : p.protocol === "http" ? 1 : 2);
+	const tierOf = (p) => (p.gemini_ok ? 0 : p.google_ok ? 1 : 2);
+	const bestForHostPort = new Map();
+	for (const p of sortedList) {
+		const hpKey = `${p.host}:${p.port}`;
+		const prev = bestForHostPort.get(hpKey);
+		if (!prev || tierOf(p) < tierOf(prev) || (tierOf(p) === tierOf(prev) && protoRank(p) < protoRank(prev))) {
+			bestForHostPort.set(hpKey, p);
+		}
+	}
+	const seenHostPort = new Set();
 	const hostCounts = new Map();
 	const exitCounts = new Map();
 	const out = [];
-	for (const p of sortedList) {
+	for (const item of sortedList) {
+		const hpKey = `${item.host}:${item.port}`;
+		if (seenHostPort.has(hpKey)) continue;
+		const p = bestForHostPort.get(hpKey) || item;
 		const hCount = hostCounts.get(p.host) || 0;
 		if (hCount >= maxPerHost) continue;
 		const exitKey = p.exit_ip || p.host;
 		const eCount = exitCounts.get(exitKey) || 0;
 		if (eCount >= maxPerExitIp) continue;
+		seenHostPort.add(hpKey);
 		hostCounts.set(p.host, hCount + 1);
 		exitCounts.set(exitKey, eCount + 1);
 		out.push(p);
