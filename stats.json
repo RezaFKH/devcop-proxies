@@ -1,0 +1,145 @@
+{
+  "updated_at": "2026-11-07T20:11:08.227Z",
+  "duration_sec": 194.3,
+  "candidates_total": 12755,
+  "rotating_farm_dropped": 5807,
+  "candidates_tested": 9500,
+  "working_https": 356,
+  "unique_hosts": 350,
+  "unique_exit_ips": 347,
+  "single_hop": 322,
+  "fixed_nat": 34,
+  "google_ok": 178,
+  "gemini_ok": 178,
+  "countries_count": 56,
+  "protocols": {
+    "socks5": 67,
+    "socks4": 3,
+    "http": 286
+  },
+  "countries": {
+    "US": 29,
+    "VE": 4,
+    "BE": 2,
+    "CO": 14,
+    "CH": 2,
+    "EC": 4,
+    "CA": 4,
+    "DE": 5,
+    "SG": 12,
+    "MX": 16,
+    "FI": 2,
+    "ID": 104,
+    "HR": 1,
+    "HK": 10,
+    "SA": 2,
+    "RU": 12,
+    "KE": 3,
+    "KH": 5,
+    "NL": 6,
+    "TR": 10,
+    "BR": 11,
+    "ZA": 1,
+    "FR": 1,
+    "TH": 8,
+    "AR": 6,
+    "PH": 9,
+    "ES": 2,
+    "PK": 5,
+    "KR": 1,
+    "GT": 2,
+    "AE": 3,
+    "SC": 1,
+    "AU": 2,
+    "VN": 5,
+    "PE": 2,
+    "NG": 1,
+    "CZ": 1,
+    "GE": 2,
+    "TZ": 1,
+    "BD": 5,
+    "IN": 5,
+    "PR": 1,
+    "IT": 1,
+    "MK": 1,
+    "RO": 1,
+    "PL": 3,
+    "GB": 2,
+    "BG": 1,
+    "CN": 17,
+    "HU": 1,
+    "AF": 1,
+    "PY": 1,
+    "AZ": 1,
+    "RS": 1,
+    "PG": 1,
+    "EE": 2
+  },
+  "feeds": [
+    {
+      "name": "carry_forward",
+      "ok": true,
+      "count": 345
+    },
+    {
+      "name": "maximilianfeix",
+      "ok": true,
+      "count": 191
+    },
+    {
+      "name": "proxifly",
+      "ok": true,
+      "count": 6044
+    },
+    {
+      "name": "hproxy",
+      "ok": true,
+      "count": 4382
+    },
+    {
+      "name": "proxio",
+      "ok": true,
+      "count": 5972
+    },
+    {
+      "name": "xyzs996",
+      "ok": true,
+      "count": 4292
+    },
+    {
+      "name": "litportnet",
+      "ok": true,
+      "count": 1571
+    },
+    {
+      "name": "monosans",
+      "ok": true,
+      "count": 924
+    },
+    {
+      "name": "proxyscrape",
+      "ok": true,
+      "count": 2281
+    },
+    {
+      "name": "thordata_socks5",
+      "ok": true,
+      "count": 31
+    },
+    {
+      "name": "thordata_https",
+      "ok": true,
+      "count": 22
+    },
+    {
+      "name": "thordata_socks4",
+      "ok": true,
+      "count": 70
+    },
+    {
+      "name": "vakhov",
+      "ok": true,
+      "count": 192
+    }
+  ]
+}
