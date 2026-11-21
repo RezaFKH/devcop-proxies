@@ -1,0 +1,127 @@
+{
+  "updated_at": "2026-11-21T11:11:35.307Z",
+  "duration_sec": 221.5,
+  "candidates_total": 11924,
+  "rotating_farm_dropped": 1031,
+  "candidates_tested": 11924,
+  "working_https": 223,
+  "unique_hosts": 219,
+  "unique_exit_ips": 218,
+  "single_hop": 199,
+  "fixed_nat": 24,
+  "google_ok": 107,
+  "gemini_ok": 107,
+  "countries_count": 38,
+  "protocols": {
+    "socks5": 59,
+    "socks4": 7,
+    "http": 157
+  },
+  "countries": {
+    "HK": 8,
+    "US": 22,
+    "FR": 2,
+    "SG": 12,
+    "JP": 5,
+    "VN": 7,
+    "ID": 62,
+    "AU": 3,
+    "KH": 2,
+    "CO": 4,
+    "SA": 1,
+    "BR": 5,
+    "RU": 11,
+    "VE": 3,
+    "BD": 3,
+    "MY": 2,
+    "ES": 1,
+    "AR": 4,
+    "MX": 6,
+    "DO": 1,
+    "UA": 3,
+    "TH": 6,
+    "GB": 1,
+    "CL": 1,
+    "DE": 6,
+    "KE": 1,
+    "KR": 1,
+    "PY": 1,
+    "CA": 2,
+    "CN": 21,
+    "IN": 3,
+    "EC": 1,
+    "LY": 1,
+    "TR": 2,
+    "CZ": 1,
+    "PH": 4,
+    "NL": 3,
+    "PL": 1
+  },
+  "feeds": [
+    {
+      "name": "carry_forward",
+      "ok": true,
+      "count": 186
+    },
+    {
+      "name": "maximilianfeix",
+      "ok": true,
+      "count": 211
+    },
+    {
+      "name": "proxifly",
+      "ok": true,
+      "count": 6814
+    },
+    {
+      "name": "hproxy",
+      "ok": true,
+      "count": 3454
+    },
+    {
+      "name": "proxio",
+      "ok": true,
+      "count": 2242
+    },
+    {
+      "name": "xyzs996",
+      "ok": true,
+      "count": 3306
+    },
+    {
+      "name": "litportnet",
+      "ok": true,
+      "count": 925
+    },
+    {
+      "name": "monosans",
+      "ok": true,
+      "count": 642
+    },
+    {
+      "name": "proxyscrape",
+      "ok": true,
+      "count": 1099
+    },
+    {
+      "name": "thordata_socks5",
+      "ok": true,
+      "count": 68
+    },
+    {
+      "name": "thordata_https",
+      "ok": true,
+      "count": 22
+    },
+    {
+      "name": "thordata_socks4",
+      "ok": true,
+      "count": 54
+    },
+    {
+      "name": "vakhov",
+      "ok": true,
+      "count": 192
+    }
+  ]
+}
